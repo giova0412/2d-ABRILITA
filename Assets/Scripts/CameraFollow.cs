@@ -25,16 +25,35 @@ public class CameraFollow : MonoBehaviour
     private Vector3 currentVelocity = Vector3.zero;
     private float currentLookAheadX = 0f;
     private Vector3 currentFocusPoint;
+    private Vector3 previousTargetPosition;
+    private PlayerController player;
     private Camera cam;
 
     private void Awake()
     {
         cam = GetComponent<Camera>();
-        if (target != null)
-        {
-            currentFocusPoint = target.position;
-            transform.position = CalculateTargetPosition(currentFocusPoint);
-        }
+        SnapToTarget();
+    }
+
+    private void OnEnable()
+    {
+        if (target != null && target.TryGetComponent<PlayerController>(out player))
+            player.Respawned += SnapToTarget;
+    }
+
+    private void OnDisable()
+    {
+        if (player != null) player.Respawned -= SnapToTarget;
+    }
+
+    public void SnapToTarget()
+    {
+        if (target == null) return;
+        currentVelocity = Vector3.zero;
+        currentLookAheadX = 0f;
+        currentFocusPoint = target.position;
+        previousTargetPosition = target.position;
+        transform.position = CalculateTargetPosition(currentFocusPoint);
     }
 
     private void LateUpdate()
@@ -55,9 +74,11 @@ public class CameraFollow : MonoBehaviour
         }
 
         // Horizontal Look Ahead
+        float movementX = targetPos.x - previousTargetPosition.x;
+        previousTargetPosition = targetPos;
         float targetLookAhead = 0f;
-        if (delta.x > 0.05f) targetLookAhead = lookAheadDistance;
-        else if (delta.x < -0.05f) targetLookAhead = -lookAheadDistance;
+        if (movementX > 0.001f) targetLookAhead = lookAheadDistance;
+        else if (movementX < -0.001f) targetLookAhead = -lookAheadDistance;
 
         currentLookAheadX = Mathf.MoveTowards(currentLookAheadX, targetLookAhead, lookAheadSpeed * Time.deltaTime);
 

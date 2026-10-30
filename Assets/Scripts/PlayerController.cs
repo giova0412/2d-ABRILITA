@@ -25,6 +25,27 @@ public class PlayerController : MonoBehaviour
     [SerializeField] private SpriteRenderer spriteRenderer;
     [SerializeField] private Animator animator;
 
+    [Header("Death & Respawn")]
+    [SerializeField] private AnimationClip deathAnimation;
+    [SerializeField] private float respawnPause = 0.6f;
+    [SerializeField] private float stompBounceForce = 9f;
+    [SerializeField] private float deathBelowY = -8f;
+
+    private Collider2D bodyCollider;
+    private Vector2 spawnPosition;
+    private bool simulatedBeforeDeath;
+    private bool jumpedSinceGrounded;
+    private bool hasLeftGround;
+    private float jumpStartY;
+    private UnityEngine.InputSystem.InputAction moveAction;
+    private UnityEngine.InputSystem.InputAction jumpAction;
+    public bool IsDead { get; private set; }
+    public bool IsJumpingForStomp => jumpedSinceGrounded;
+    public Vector2 PreviousVelocity { get; private set; }
+    public Bounds PreviousBounds { get; private set; }
+    public event System.Action Respawned;
+    private static readonly int DeadHash = Animator.StringToHash("Dead");
+
     // Component references
     private Rigidbody2D rb;
 
@@ -53,11 +74,132 @@ public class PlayerController : MonoBehaviour
 
         if (animator == null)
             animator = GetComponent<Animator>();
+
+        bodyCollider = GetComponent<Collider2D>();
+        spawnPosition = rb.position;
+        PreviousBounds = bodyCollider.bounds;
+        moveAction = new UnityEngine.InputSystem.InputAction("Move", UnityEngine.InputSystem.InputActionType.Value);
+        moveAction.AddCompositeBinding("1DAxis").With("Negative", "<Keyboard>/a").With("Positive", "<Keyboard>/d");
+        moveAction.AddCompositeBinding("1DAxis").With("Negative", "<Keyboard>/leftArrow").With("Positive", "<Keyboard>/rightArrow");
+        moveAction.AddBinding("<Gamepad>/leftStick/x");
+        moveAction.AddCompositeBinding("1DAxis").With("Negative", "<Gamepad>/dpad/left").With("Positive", "<Gamepad>/dpad/right");
+        jumpAction = new UnityEngine.InputSystem.InputAction("Jump", UnityEngine.InputSystem.InputActionType.Button);
+        jumpAction.AddBinding("<Keyboard>/space");
+        jumpAction.AddBinding("<Keyboard>/w");
+        jumpAction.AddBinding("<Keyboard>/upArrow");
+        jumpAction.AddBinding("<Gamepad>/buttonSouth");
+    }
+
+    private void OnEnable()
+    {
+        moveAction.performed += OnMove;
+        moveAction.canceled += OnMove;
+        jumpAction.performed += OnJump;
+        jumpAction.canceled += OnJump;
+        moveAction.Enable();
+        jumpAction.Enable();
+    }
+
+    private void OnDisable()
+    {
+        moveAction.Disable();
+        jumpAction.Disable();
+        moveAction.performed -= OnMove;
+        moveAction.canceled -= OnMove;
+        jumpAction.performed -= OnJump;
+        jumpAction.canceled -= OnJump;
+        horizontalInput = 0;
+        jumpHeld = false;
+    }
+
+    private void OnDestroy()
+    {
+        moveAction?.Dispose();
+        jumpAction?.Dispose();
+    }
+
+    private void OnMove(UnityEngine.InputSystem.InputAction.CallbackContext context)
+    {
+        horizontalInput = IsDead ? 0 : Mathf.Clamp(context.ReadValue<float>(), -1, 1);
+    }
+
+    private void OnJump(UnityEngine.InputSystem.InputAction.CallbackContext context)
+    {
+        if (IsDead) return;
+        jumpHeld = !context.canceled;
+        if (context.performed) jumpBufferCounter = jumpBufferTime;
+    }
+
+    public void Die()
+    {
+        if (IsDead) return;
+        IsDead = true;
+        horizontalInput = 0;
+        jumpHeld = false;
+        jumpBufferCounter = coyoteTimeCounter = 0;
+        jumpedSinceGrounded = false;
+        rb.linearVelocity = Vector2.zero;
+        rb.gravityScale = defaultGravityScale;
+        simulatedBeforeDeath = rb.simulated;
+        rb.simulated = false;
+        if (animator != null)
+        {
+            animator.ResetTrigger(JumpHash);
+            animator.SetBool(DeadHash, true);
+            animator.Play("Dead", 0, 0);
+        }
+        StartCoroutine(RespawnAfterDeath());
+    }
+
+    private System.Collections.IEnumerator RespawnAfterDeath()
+    {
+        yield return new WaitForSeconds((deathAnimation != null ? deathAnimation.length : 1f) + respawnPause);
+        rb.position = spawnPosition;
+        transform.position = new Vector3(spawnPosition.x, spawnPosition.y, transform.position.z);
+        rb.linearVelocity = Vector2.zero;
+        rb.gravityScale = defaultGravityScale;
+        rb.simulated = simulatedBeforeDeath;
+        horizontalInput = 0;
+        jumpHeld = false;
+        jumpBufferCounter = coyoteTimeCounter = 0;
+        isGrounded = false;
+        jumpedSinceGrounded = false;
+        PreviousVelocity = Vector2.zero;
+        Physics2D.SyncTransforms();
+        PreviousBounds = bodyCollider.bounds;
+        if (animator != null)
+        {
+            animator.SetBool(DeadHash, false);
+            animator.SetFloat(SpeedHash, 0);
+            animator.SetBool(IsGroundedHash, true);
+            animator.ResetTrigger(JumpHash);
+            animator.Play("Idle", 0, 0);
+        }
+        IsDead = false;
+        Respawned?.Invoke();
+    }
+
+    public void BounceAfterStomp()
+    {
+        if (IsDead) return;
+        rb.linearVelocity = new Vector2(rb.linearVelocity.x, stompBounceForce);
+        rb.gravityScale = defaultGravityScale;
+        jumpHeld = true;
+        jumpedSinceGrounded = true;
+        jumpStartY = rb.position.y;
+        isGrounded = false;
+        jumpBufferCounter = coyoteTimeCounter = 0;
+        if (animator != null) animator.SetTrigger(JumpHash);
     }
 
     private void Update()
     {
-        GatherInput();
+        if (IsDead) return;
+        if (rb.position.y < deathBelowY)
+        {
+            Die();
+            return;
+        }
 
         // Ground Check
         CheckGround();
@@ -93,61 +235,14 @@ public class PlayerController : MonoBehaviour
 
     private void FixedUpdate()
     {
+        if (IsDead) return;
         ApplyMovement();
         ApplyDynamicGravity();
+        PreviousVelocity = rb.linearVelocity;
+        PreviousBounds = bodyCollider.bounds;
     }
 
-    private void GatherInput()
-    {
-        horizontalInput = 0f;
-        bool jumpPressedThisFrame = false;
-        jumpHeld = false;
-
-        // New Input System: Keyboard
-        var keyboard = Keyboard.current;
-        if (keyboard != null)
-        {
-            if (keyboard.aKey.isPressed || keyboard.leftArrowKey.isPressed)
-                horizontalInput -= 1f;
-            if (keyboard.dKey.isPressed || keyboard.rightArrowKey.isPressed)
-                horizontalInput += 1f;
-
-            if (keyboard.spaceKey.wasPressedThisFrame || keyboard.wKey.wasPressedThisFrame || keyboard.upArrowKey.wasPressedThisFrame)
-                jumpPressedThisFrame = true;
-
-            if (keyboard.spaceKey.isPressed || keyboard.wKey.isPressed || keyboard.upArrowKey.isPressed)
-                jumpHeld = true;
-        }
-
-        // New Input System: Gamepad (optional support)
-        var gamepad = Gamepad.current;
-        if (gamepad != null)
-        {
-            float stickX = gamepad.leftStick.x.ReadValue();
-            if (Mathf.Abs(stickX) > 0.15f)
-                horizontalInput += stickX;
-
-            if (gamepad.dpad.left.isPressed)
-                horizontalInput -= 1f;
-            if (gamepad.dpad.right.isPressed)
-                horizontalInput += 1f;
-
-            if (gamepad.buttonSouth.wasPressedThisFrame)
-                jumpPressedThisFrame = true;
-
-            if (gamepad.buttonSouth.isPressed)
-                jumpHeld = true;
-        }
-
-        horizontalInput = Mathf.Clamp(horizontalInput, -1f, 1f);
-
-        if (jumpPressedThisFrame)
-        {
-            jumpBufferCounter = jumpBufferTime;
-        }
-    }
-
-    private void CheckGround()
+private void CheckGround()
     {
         if (groundCheck != null)
         {
@@ -155,13 +250,18 @@ public class PlayerController : MonoBehaviour
         }
         else
         {
-            // Fallback ground detection using bounds
-            var col = GetComponent<Collider2D>();
-            if (col != null)
+            // Fallback ground detection using cached bounds
+            if (bodyCollider != null)
             {
-                Vector2 bottom = new Vector2(col.bounds.center.x, col.bounds.min.y);
+                Vector2 bottom = new Vector2(bodyCollider.bounds.center.x, bodyCollider.bounds.min.y);
                 isGrounded = Physics2D.OverlapCircle(bottom, groundCheckRadius, groundLayer);
             }
+        }
+        if (!isGrounded) hasLeftGround = true;
+        if (isGrounded && hasLeftGround && rb.linearVelocity.y <= 0.1f)
+        {
+            jumpedSinceGrounded = false;
+            hasLeftGround = false;
         }
     }
 
@@ -195,6 +295,9 @@ public class PlayerController : MonoBehaviour
 
     private void ExecuteJump()
     {
+        jumpedSinceGrounded = true;
+        hasLeftGround = false;
+        jumpStartY = rb.position.y;
         rb.linearVelocity = new Vector2(rb.linearVelocity.x, jumpForce);
         jumpBufferCounter = 0;
         coyoteTimeCounter = 0;
