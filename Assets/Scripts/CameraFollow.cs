@@ -109,7 +109,19 @@ public class CameraFollow : MonoBehaviour
 
     private Vector3 CalculateTargetPosition(Vector3 focusPoint)
     {
-        return new Vector3(focusPoint.x + offset.x, focusPoint.y + offset.y, offset.z);
+        Vector3 position = new Vector3(focusPoint.x + offset.x, focusPoint.y + offset.y, offset.z);
+        if (useBounds && cam != null && cam.orthographic)
+        {
+            float halfHeight = cam.orthographicSize;
+            float halfWidth = halfHeight * cam.aspect;
+            position.x = minBounds.x + halfWidth <= maxBounds.x - halfWidth
+                ? Mathf.Clamp(position.x, minBounds.x + halfWidth, maxBounds.x - halfWidth)
+                : (minBounds.x + maxBounds.x) * 0.5f;
+            position.y = minBounds.y + halfHeight <= maxBounds.y - halfHeight
+                ? Mathf.Clamp(position.y, minBounds.y + halfHeight, maxBounds.y - halfHeight)
+                : (minBounds.y + maxBounds.y) * 0.5f;
+        }
+        return position;
     }
 
     public void SetTarget(Transform newTarget)

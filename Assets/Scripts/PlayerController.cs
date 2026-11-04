@@ -30,6 +30,16 @@ public class PlayerController : MonoBehaviour
     [SerializeField] private float respawnPause = 0.6f;
     [SerializeField] private float stompBounceForce = 9f;
     [SerializeField] private float deathBelowY = -8f;
+    [SerializeField] private int startingLives = 3;
+    [SerializeField] private float leftLevelLimit = -11f;
+    [SerializeField] private float rightLevelLimit = 95f;
+    [SerializeField] private float respawnProtection = 1.5f;
+
+    public int Lives { get; private set; }
+    public bool LevelCompleted { get; private set; }
+    public event System.Action<int> LivesChanged;
+    public event System.Action GameOver;
+    private float protectedUntil;
 
     private Collider2D bodyCollider;
     private Vector2 spawnPosition;
@@ -76,6 +86,7 @@ public class PlayerController : MonoBehaviour
             animator = GetComponent<Animator>();
 
         bodyCollider = GetComponent<Collider2D>();
+        Lives = startingLives;
         spawnPosition = rb.position;
         PreviousBounds = bodyCollider.bounds;
         moveAction = new UnityEngine.InputSystem.InputAction("Move", UnityEngine.InputSystem.InputActionType.Value);
@@ -125,15 +136,17 @@ public class PlayerController : MonoBehaviour
 
     private void OnJump(UnityEngine.InputSystem.InputAction.CallbackContext context)
     {
-        if (IsDead) return;
+        if (IsDead || LevelCompleted) return;
         jumpHeld = !context.canceled;
         if (context.performed) jumpBufferCounter = jumpBufferTime;
     }
 
     public void Die()
     {
-        if (IsDead) return;
+        if (IsDead || LevelCompleted || (Time.time < protectedUntil && rb.position.y >= deathBelowY)) return;
         IsDead = true;
+        Lives = Mathf.Max(0, Lives - 1);
+        LivesChanged?.Invoke(Lives);
         horizontalInput = 0;
         jumpHeld = false;
         jumpBufferCounter = coyoteTimeCounter = 0;
@@ -154,6 +167,11 @@ public class PlayerController : MonoBehaviour
     private System.Collections.IEnumerator RespawnAfterDeath()
     {
         yield return new WaitForSeconds((deathAnimation != null ? deathAnimation.length : 1f) + respawnPause);
+        if (Lives <= 0)
+        {
+            GameOver?.Invoke();
+            yield break;
+        }
         rb.position = spawnPosition;
         transform.position = new Vector3(spawnPosition.x, spawnPosition.y, transform.position.z);
         rb.linearVelocity = Vector2.zero;
@@ -176,12 +194,14 @@ public class PlayerController : MonoBehaviour
             animator.Play("Idle", 0, 0);
         }
         IsDead = false;
+        hasLeftGround = false;
+        protectedUntil = Time.time + respawnProtection;
         Respawned?.Invoke();
     }
 
     public void BounceAfterStomp()
     {
-        if (IsDead) return;
+        if (IsDead || LevelCompleted) return;
         rb.linearVelocity = new Vector2(rb.linearVelocity.x, stompBounceForce);
         rb.gravityScale = defaultGravityScale;
         jumpHeld = true;
@@ -194,7 +214,7 @@ public class PlayerController : MonoBehaviour
 
     private void Update()
     {
-        if (IsDead) return;
+        if (IsDead || LevelCompleted) return;
         if (rb.position.y < deathBelowY)
         {
             Die();
@@ -235,7 +255,13 @@ public class PlayerController : MonoBehaviour
 
     private void FixedUpdate()
     {
-        if (IsDead) return;
+        if (IsDead || LevelCompleted) return;
+        float limitedX = Mathf.Clamp(rb.position.x, leftLevelLimit, rightLevelLimit);
+        if (limitedX != rb.position.x)
+        {
+            rb.position = new Vector2(limitedX, rb.position.y);
+            rb.linearVelocity = new Vector2(0, rb.linearVelocity.y);
+        }
         ApplyMovement();
         ApplyDynamicGravity();
         PreviousVelocity = rb.linearVelocity;
@@ -331,6 +357,21 @@ private void CheckGround()
         float currentSpeed = Mathf.Abs(rb.linearVelocity.x);
         animator.SetFloat(SpeedHash, currentSpeed);
         animator.SetBool(IsGroundedHash, isGrounded);
+    }
+
+    public void CompleteLevel()
+    {
+        if (IsDead || LevelCompleted) return;
+        LevelCompleted = true;
+        horizontalInput = 0;
+        jumpHeld = false;
+        rb.linearVelocity = Vector2.zero;
+        rb.simulated = false;
+        if (animator != null)
+        {
+            animator.SetFloat(SpeedHash, 0);
+            animator.Play("Idle", 0, 0);
+        }
     }
 
     public void ConfigureReferences(Transform check, LayerMask layer, Animator anim, SpriteRenderer sr)
