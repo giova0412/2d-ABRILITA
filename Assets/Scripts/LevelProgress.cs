@@ -55,6 +55,8 @@ public class LevelProgress : MonoBehaviour
         if (collector != player || player.IsDead || Finished) return false;
         Coins++;
         RefreshCoins();
+        // Se reproduce desde el administrador persistente, no desde la moneda.
+        if (AudioManager.Instance != null) AudioManager.Instance.PlayCoin();
         return true;
     }
 

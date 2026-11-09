@@ -141,10 +141,12 @@ public class PlayerController : MonoBehaviour
         if (context.performed) jumpBufferCounter = jumpBufferTime;
     }
 
-    public void Die()
+    public void Die(bool ignoreProtection = false)
     {
-        if (IsDead || LevelCompleted || (Time.time < protectedUntil && rb.position.y >= deathBelowY)) return;
+        if (IsDead || LevelCompleted || (!ignoreProtection && Time.time < protectedUntil && rb.position.y >= deathBelowY)) return;
         IsDead = true;
+        // Todas las causas de muerte reproducen el mismo efecto una sola vez.
+        if (AudioManager.Instance != null) AudioManager.Instance.PlayDeath();
         Lives = Mathf.Max(0, Lives - 1);
         LivesChanged?.Invoke(Lives);
         horizontalInput = 0;
@@ -197,6 +199,12 @@ public class PlayerController : MonoBehaviour
         hasLeftGround = false;
         protectedUntil = Time.time + respawnProtection;
         Respawned?.Invoke();
+    }
+
+    // Un checkpoint actualiza el destino usado por RespawnAfterDeath.
+    public void SetCheckpoint(Vector2 position)
+    {
+        if (!IsDead && !LevelCompleted) spawnPosition = position;
     }
 
     public void BounceAfterStomp()
@@ -325,6 +333,8 @@ private void CheckGround()
         hasLeftGround = false;
         jumpStartY = rb.position.y;
         rb.linearVelocity = new Vector2(rb.linearVelocity.x, jumpForce);
+        // No suena al pulsar salto si el personaje no puede saltar.
+        if (AudioManager.Instance != null) AudioManager.Instance.PlayJump();
         jumpBufferCounter = 0;
         coyoteTimeCounter = 0;
 

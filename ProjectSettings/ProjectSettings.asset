@@ -668,7 +668,13 @@ PlayerSettings:
   XboxOneXTitleMemory: 8
   XboxOneOverrideIdentityName: 
   XboxOneOverrideIdentityPublisher: 
-  cloudServicesEnabled: {}
+  cloudServicesEnabled:
+    Build: 0
+    Game Performance: 0
+    Legacy Analytics: 0
+    Purchasing: 0
+    UDP: 0
+    Unity Ads: 0
   luminIcon:
     m_Name: 
     m_ModelFolderPath: 
@@ -691,11 +697,11 @@ PlayerSettings:
   activeInputHandler: 1
   windowsGamepadBackendHint: 0
   enableDirectStorage: 0
-  cloudProjectId: ecd1ebc6-1ca7-4edf-bb08-0f94c17537c5
+  cloudProjectId: 6a5543a7-2019-4b84-b0db-80247357b4d3
   framebufferDepthMemorylessMode: 0
   qualitySettingsNames: []
   projectName: 2d ABRILITA
-  organizationId: unity_230314
+  organizationId: giovanyraul359
   cloudEnabled: 0
   legacyClampBlendShapeWeights: 0
   hmiLoadingImage: {fileID: 0}
